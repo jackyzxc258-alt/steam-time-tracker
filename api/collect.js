@@ -156,14 +156,6 @@ async function computeDailySummaryJS() {
 // ── Main handler ──
 
 module.exports = async (req, res) => {
-  // Optional manual-trigger auth check
-  if (req.method === "GET") {
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (token !== process.env.CRON_SECRET) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
-
   try {
     console.log("[collect] Starting collection...");
 
