@@ -274,7 +274,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_NSwRrV5zk5Gqj4IQxfL3Rw_IiS_P93l';
 // ============================================================
 //  Init
 // ============================================================
-let supabase = null;
+let _db = null;
 let chartInstance = null;
 
 function initSupabase() {
@@ -287,7 +287,7 @@ function initSupabase() {
       </div>`;
     return false;
   }
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  _db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   return true;
 }
 
@@ -296,12 +296,12 @@ function initSupabase() {
 // ============================================================
 
 async function loadDashboard() {
-  if (!supabase) return;
+  if (!_db) return;
 
   const today = new Date().toISOString().slice(0, 10);
 
   // Today's summary
-  const { data: todayData, error: todayErr } = await supabase
+  const { data: todayData, error: todayErr } = await _db
     .from('daily_summary')
     .select('*')
     .eq('date', today)
@@ -311,7 +311,7 @@ async function loadDashboard() {
 
   // Week summary (last 7 days)
   const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
-  const { data: weekData } = await supabase
+  const { data: weekData } = await _db
     .from('daily_summary')
     .select('*')
     .gte('date', weekAgo)
@@ -320,7 +320,7 @@ async function loadDashboard() {
 
   // History (last 30 days, grouped by date)
   const monthAgo = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-  const { data: historyData } = await supabase
+  const { data: historyData } = await _db
     .from('daily_summary')
     .select('*')
     .gte('date', monthAgo)
@@ -329,7 +329,7 @@ async function loadDashboard() {
     .limit(200);
 
   // Child config for daily limit
-  const { data: config } = await supabase
+  const { data: config } = await _db
     .from('child_config')
     .select('daily_limit_minutes')
     .eq('id', 1)
@@ -551,8 +551,8 @@ async function openSettings() {
   document.getElementById('settingsModal').classList.add('open');
 
   // Load existing config
-  if (supabase) {
-    const { data } = await supabase.from('child_config').select('*').eq('id', 1).maybeSingle();
+  if (_db) {
+    const { data } = await _db.from('child_config').select('*').eq('id', 1).maybeSingle();
     if (data) {
       document.getElementById('cfgSteamId').value = data.steam_vanity_url || data.steam_id || '';
       document.getElementById('cfgApiKey').value = data.steam_api_key || '';
@@ -566,7 +566,7 @@ function closeSettings() {
 }
 
 async function saveSettings() {
-  if (!supabase) return alert('请先配置 Supabase 连接');
+  if (!_db) return alert('请先配置 Supabase 连接');
 
   const btn = document.getElementById('saveBtn');
   btn.disabled = true;
@@ -583,7 +583,7 @@ async function saveSettings() {
     return;
   }
 
-  const { error } = await supabase.from('child_config').upsert({
+  const { error } = await _db.from('child_config').upsert({
     id: 1,
     steam_id: /^\d{17}$/.test(steamId) ? parseInt(steamId) : 0,
     steam_vanity_url: /^\d{17}$/.test(steamId) ? null : steamId,
