@@ -9,6 +9,14 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Steam collection
-        run: |
-          curl -s -L "${{ secrets.VERCEL_URL }}/api/collect"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm install
+        working-directory: api
+      - run: node collect-standalone.js
+        working-directory: api
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
