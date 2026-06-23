@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎮 孩子游戏时长监控</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e1e4ed;
+      --text-dim: #8b8fa3;
+      --accent: #6c8cff;
+      --accent-glow: rgba(108,140,255,0.15);
+      --danger: #ff6b7a;
+      --success: #5cdb8b;
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.3px; }
+    .header h1 span { font-size: 1.5rem; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+    .status-dot {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim);
+      transition: background 0.3s;
+    }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status-dot.offline { background: var(--danger); }
+
+    /* ── Buttons ── */
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-sm { padding: 5px 10px; font-size: 0.8rem; }
+    .btn-danger { border-color: var(--danger); color: var(--danger); }
+    .btn-danger:hover { background: rgba(255,107,122,0.1); }
+
+    /* ── Layout ── */
+    .container { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    /* ── Cards row ── */
+    .cards-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+    }
+    .stat-card .label { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; letter-spacing: -0.5px; }
+    .stat-card .sub { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+    .stat-card .game-icons { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .game-badge {
+      background: rgba(108,140,255,0.12);
+      border: 1px solid rgba(108,140,255,0.25);
+      color: var(--accent);
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+    }
+    .panel-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-header h2 { font-size: 1rem; font-weight: 600; }
+    .panel-body { padding: 20px 24px; }
+
+    /* ── Chart ── */
+    #chart-container { position: relative; height: 280px; }
+    #chart-container canvas { width: 100% !important; }
+
+    /* ── History table ── */
+    .history-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .history-table th {
+      text-align: left; padding: 10px 12px; color: var(--text-dim); font-weight: 500;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+    }
+    .history-table td {
+      padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+    }
+    .history-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .history-table .date-col { font-weight: 600; white-space: nowrap; }
+    .history-table .time-col { font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .history-table .games-col { max-width: 280px; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+      z-index: 200; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      width: 460px; max-width: 90vw; padding: 28px;
+    }
+    .modal h2 { font-size: 1.15rem; margin-bottom: 20px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 6px; }
+    .form-group input {
+      width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-size: 0.9rem; outline: none; transition: border 0.2s;
+    }
+    .form-group input:focus { border-color: var(--accent); }
+    .form-group .hint { font-size: 0.72rem; color: var(--text-dim); margin-top: 4px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+    /* ── Empty state ── */
+    .empty {
+      text-align: center; padding: 48px 20px; color: var(--text-dim);
+    }
+    .empty p { margin-bottom: 16px; }
+
+    /* ── Loader ── */
+    .loader { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .cards-row { grid-template-columns: 1fr; }
+      .header h1 { font-size: 1.1rem; }
+      .container { padding: 16px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <h1><span>🎮</span> 游戏时长监控</h1>
+  <div class="header-actions">
+    <div class="status-dot" id="statusDot" title="Steam 连接状态"></div>
+    <span id="lastUpdate" style="font-size:0.75rem;color:var(--text-dim)">—</span>
+    <button class="btn btn-sm" onclick="openSettings()">⚙ 设置</button>
+    <button class="btn btn-sm" onclick="refreshData()" id="refreshBtn">🔄 刷新</button>
+  </div>
+</header>
+
+<!-- Main Container -->
+<div class="container" id="app">
+
+  <!-- Stat Cards -->
+  <div class="cards-row">
+    <div class="stat-card">
+      <div class="label">📅 今日游戏时长</div>
+      <div class="value" id="todayTotal">—</div>
+      <div class="sub" id="todayGames">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">📊 本周总计</div>
+      <div class="value" id="weekTotal">—</div>
+      <div class="sub" id="weekAvg">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">🎯 最近在玩</div>
+      <div class="value" style="font-size:1.25rem" id="recentGame">—</div>
+      <div class="game-icons" id="recentBadges"></div>
+    </div>
+  </div>
+
+  <!-- Today's Breakdown Chart -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>📊 今日游戏分布</h2>
+      <span style="font-size:0.75rem;color:var(--text-dim)" id="chartSubtitle"></span>
+    </div>
+    <div class="panel-body">
+      <div id="chart-container"><canvas id="chart"></canvas></div>
+      <div class="empty" id="chartEmpty" style="display:none"><p>暂无今日数据</p></div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>📅 历史记录</h2>
+      <span style="font-size:0.75rem;color:var(--text-dim)" id="historyCount"></span>
+    </div>
+    <div class="panel-body" style="overflow-x:auto">
+      <table class="history-table" id="historyTable">
+        <thead><tr><th>日期</th><th>时长</th><th>游戏</th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      <div class="empty" id="historyEmpty" style="display:none"><p>暂无历史记录</p><p style="font-size:0.8rem">数据采集后会自动出现在这里</p></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h2>⚙ 监控设置</h2>
+    <div class="form-group">
+      <label>Steam ID 或自定义 URL</label>
+      <input type="text" id="cfgSteamId" placeholder="例如: 7656119xxxxxxxxxx 或 vanity-name">
+      <div class="hint">Steam 个人资料页 URL 末尾的名称，或 17 位 Steam64 ID</div>
+    </div>
+    <div class="form-group">
+      <label>Steam Web API Key</label>
+      <input type="password" id="cfgApiKey" placeholder="从 https://steamcommunity.com/dev/apikey 获取">
+      <div class="hint"><a href="https://steamcommunity.com/dev/apikey" target="_blank" style="color:var(--accent)">获取 API Key ↗</a>（需要 Steam 账号登录）</div>
+    </div>
+    <div class="form-group">
+      <label>每日时长限制（分钟，可选）</label>
+      <input type="number" id="cfgDailyLimit" placeholder="例如: 120" min="0">
+      <div class="hint">超过此时间会在仪表盘标红提醒</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSettings()">取消</button>
+      <button class="btn btn-primary" onclick="saveSettings()" id="saveBtn">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────── Script ──────────────── -->
+<script>
+// ============================================================
+//  CONFIGURATION — Replace with your Supabase project values
+// ============================================================
+const SUPABASE_URL = 'https://gfagubugvevcxodxzjcy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_NSwRrV5zk5Gqj4IQxfL3Rw_IiS_P93l';
+
+// ============================================================
+//  Init
+// ============================================================
+let supabase = null;
+let chartInstance = null;
+
+function initSupabase() {
+  if (!SUPABASE_URL || SUPABASE_URL === 'YOUR_SUPABASE_URL') {
+    document.getElementById('app').innerHTML = `
+      <div class="empty" style="padding:80px 20px">
+        <p style="font-size:1.2rem;margin-bottom:12px">⚠️ 请先配置 Supabase</p>
+        <p>打开此 HTML 文件，将 <code>SUPABASE_URL</code> 和 <code>SUPABASE_ANON_KEY</code> 替换为你的 Supabase 项目值。</p>
+        <p style="margin-top:12px;font-size:0.85rem">在 <a href="https://app.supabase.com" target="_blank" style="color:var(--accent)">Supabase Dashboard</a> → Settings → API 中找到。</p>
+      </div>`;
+    return false;
+  }
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return true;
+}
+
+// ============================================================
+//  Data fetching
+// ============================================================
+
+async function loadDashboard() {
+  if (!supabase) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Today's summary
+  const { data: todayData, error: todayErr } = await supabase
+    .from('daily_summary')
+    .select('*')
+    .eq('date', today)
+    .order('minutes_today', { ascending: false });
+
+  if (todayErr) console.error('today error:', todayErr);
+
+  // Week summary (last 7 days)
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const { data: weekData } = await supabase
+    .from('daily_summary')
+    .select('*')
+    .gte('date', weekAgo)
+    .lte('date', today)
+    .order('date', { ascending: false });
+
+  // History (last 30 days, grouped by date)
+  const monthAgo = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  const { data: historyData } = await supabase
+    .from('daily_summary')
+    .select('*')
+    .gte('date', monthAgo)
+    .lte('date', today)
+    .order('date', { ascending: false })
+    .limit(200);
+
+  // Child config for daily limit
+  const { data: config } = await supabase
+    .from('child_config')
+    .select('daily_limit_minutes')
+    .eq('id', 1)
+    .maybeSingle();
+
+  // Render everything
+  renderTodayCard(todayData, config?.daily_limit_minutes);
+  renderWeekCard(weekData);
+  renderRecentCard(todayData);
+  renderChart(todayData);
+  renderHistory(historyData);
+
+  // Update status
+  updateStatus(todayData);
+}
+
+function updateStatus(todayData) {
+  const dot = document.getElementById('statusDot');
+  const last = document.getElementById('lastUpdate');
+  if (todayData && todayData.length > 0) {
+    dot.className = 'status-dot online';
+    dot.title = '数据正常';
+    last.textContent = '已连接';
+  } else {
+    dot.className = 'status-dot offline';
+    dot.title = '今日暂无数据，等待采集';
+    last.textContent = '等待数据';
+  }
+}
+
+// ============================================================
+//  Card rendering
+// ============================================================
+
+function renderTodayCard(data, dailyLimit) {
+  const el = document.getElementById('todayTotal');
+  const sub = document.getElementById('todayGames');
+  if (!data || data.length === 0) {
+    el.textContent = '0h 0m';
+    sub.textContent = '今天还没开始玩';
+    el.style.color = 'var(--text)';
+    return;
+  }
+  const totalMin = data.reduce((s, r) => s + r.minutes_today, 0);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  el.textContent = `${h}h ${m}m`;
+  sub.textContent = `共 ${data.length} 款游戏`;
+
+  // Daily limit warning
+  if (dailyLimit && totalMin > dailyLimit) {
+    el.style.color = 'var(--danger)';
+  } else {
+    el.style.color = 'var(--text)';
+  }
+}
+
+function renderWeekCard(weekData) {
+  const el = document.getElementById('weekTotal');
+  const avg = document.getElementById('weekAvg');
+  if (!weekData || weekData.length === 0) {
+    el.textContent = '0h 0m';
+    avg.textContent = '暂无数据';
+    return;
+  }
+  // Group by date
+  const byDate = {};
+  for (const r of weekData) {
+    byDate[r.date] = (byDate[r.date] || 0) + r.minutes_today;
+  }
+  const totalMin = Object.values(byDate).reduce((s, v) => s + v, 0);
+  const days = Object.keys(byDate).length;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  el.textContent = `${h}h ${m}m`;
+  avg.textContent = `日均 ${Math.round(totalMin / days)} 分钟  ·  ${days} 天有记录`;
+}
+
+function renderRecentCard(todayData) {
+  const el = document.getElementById('recentGame');
+  const badges = document.getElementById('recentBadges');
+  if (!todayData || todayData.length === 0) {
+    el.textContent = '—';
+    badges.innerHTML = '';
+    return;
+  }
+  const top3 = todayData.slice(0, 3);
+  el.textContent = top3[0].game_name;
+  badges.innerHTML = top3.map(g =>
+    `<span class="game-badge">${g.game_name} ${fmtMinutes(g.minutes_today)}</span>`
+  ).join('');
+}
+
+// ============================================================
+//  Chart
+// ============================================================
+
+function renderChart(data) {
+  const container = document.getElementById('chart-container');
+  const empty = document.getElementById('chartEmpty');
+  const sub = document.getElementById('chartSubtitle');
+
+  if (!data || data.length === 0) {
+    container.style.display = 'none';
+    empty.style.display = 'block';
+    sub.textContent = '';
+    return;
+  }
+  container.style.display = 'block';
+  empty.style.display = 'none';
+
+  const top = data.slice(0, 10); // top 10 games
+  sub.textContent = `共 ${data.length} 款，显示前 ${top.length}`;
+
+  const labels = top.map(r => r.game_name);
+  const values = top.map(r => r.minutes_today);
+  const colors = top.map((_, i) => {
+    const hue = (210 + i * 35) % 360;
+    return `hsla(${hue}, 60%, 65%, 0.85)`;
+  });
+
+  if (chartInstance) chartInstance.destroy();
+
+  const ctx = document.getElementById('chart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '今日游戏时长 (分钟)',
+        data: values,
+        backgroundColor: colors,
+        borderColor: colors.map(c => c.replace('0.85', '1')),
+        borderWidth: 1,
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'x',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${fmtMinutes(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8b8fa3', font: { size: 11 }, maxRotation: 45, minRotation: 0 },
+          grid: { display: false }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: '#8b8fa3',
+            callback: v => fmtMinutes(v)
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+//  History table
+// ============================================================
+
+function renderHistory(historyData) {
+  const tbody = document.getElementById('historyBody');
+  const empty = document.getElementById('historyEmpty');
+  const countEl = document.getElementById('historyCount');
+  const table = document.getElementById('historyTable');
+
+  if (!historyData || historyData.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    table.style.display = 'none';
+    countEl.textContent = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  table.style.display = '';
+
+  // Group by date
+  const byDate = {};
+  for (const r of historyData) {
+    if (!byDate[r.date]) byDate[r.date] = { total: 0, games: [] };
+    byDate[r.date].total += r.minutes_today;
+    byDate[r.date].games.push({ name: r.game_name, min: r.minutes_today });
+  }
+
+  const dates = Object.keys(byDate).sort().reverse();
+  countEl.textContent = `最近 ${dates.length} 天`;
+
+  tbody.innerHTML = dates.map(date => {
+    const day = byDate[date];
+    const topGames = day.games.sort((a, b) => b.min - a.min).slice(0, 4);
+    return `
+      <tr>
+        <td class="date-col">${formatDate(date)}</td>
+        <td class="time-col">${fmtMinutes(day.total)}</td>
+        <td class="games-col">${topGames.map(g =>
+          `<span class="game-badge" style="margin:1px 2px">${g.name} ${fmtMinutes(g.min)}</span>`
+        ).join('')}</td>
+      </tr>`;
+  }).join('');
+}
+
+// ============================================================
+//  Settings modal
+// ============================================================
+
+async function openSettings() {
+  document.getElementById('settingsModal').classList.add('open');
+
+  // Load existing config
+  if (supabase) {
+    const { data } = await supabase.from('child_config').select('*').eq('id', 1).maybeSingle();
+    if (data) {
+      document.getElementById('cfgSteamId').value = data.steam_vanity_url || data.steam_id || '';
+      document.getElementById('cfgApiKey').value = data.steam_api_key || '';
+      document.getElementById('cfgDailyLimit').value = data.daily_limit_minutes || '';
+    }
+  }
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+
+async function saveSettings() {
+  if (!supabase) return alert('请先配置 Supabase 连接');
+
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span> 保存中...';
+
+  const steamId = document.getElementById('cfgSteamId').value.trim();
+  const apiKey = document.getElementById('cfgApiKey').value.trim();
+  const dailyLimit = parseInt(document.getElementById('cfgDailyLimit').value) || null;
+
+  if (!steamId || !apiKey) {
+    alert('Steam ID 和 API Key 不能为空');
+    btn.disabled = false;
+    btn.textContent = '💾 保存';
+    return;
+  }
+
+  const { error } = await supabase.from('child_config').upsert({
+    id: 1,
+    steam_id: /^\d{17}$/.test(steamId) ? parseInt(steamId) : 0,
+    steam_vanity_url: /^\d{17}$/.test(steamId) ? null : steamId,
+    steam_api_key: apiKey,
+    daily_limit_minutes: dailyLimit,
+  }, { onConflict: 'id' });
+
+  if (error) {
+    alert('保存失败: ' + error.message);
+  } else {
+    closeSettings();
+    alert('✅ 设置已保存！请确认 Vercel Cron 定时采集已部署，数据将在下次采集后出现。');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '💾 保存';
+}
+
+// ============================================================
+//  Refresh
+// ============================================================
+
+async function refreshData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span>';
+  await loadDashboard();
+  btn.disabled = false;
+  btn.textContent = '🔄 刷新';
+}
+
+// ============================================================
+//  Helpers
+// ============================================================
+
+function fmtMinutes(min) {
+  if (!min || min === 0) return '0m';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const label = diff === 0 ? '今天' : diff === 1 ? '昨天' : weekdays[d.getDay()];
+  return `${dateStr.slice(5)} ${label}`;
+}
+
+// ============================================================
+//  Boot
+// ============================================================
+
+if (initSupabase()) {
+  loadDashboard();
+  // Auto-refresh every 5 minutes
+  setInterval(loadDashboard, 5 * 60 * 1000);
+}
+
+// Close modal on overlay click
+document.getElementById('settingsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+</script>
+
+</body>
+</html>
