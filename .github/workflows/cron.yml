@@ -11,6 +11,6 @@ jobs:
     steps:
       - name: Trigger Steam collection
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
+          curl -s -L -o /dev/null -w "%{http_code}" \
             "${{ secrets.VERCEL_URL }}/api/collect" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
