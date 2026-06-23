@@ -29,7 +29,10 @@ async function resolveSteamId(apiKey, input) {
 async function fetchOwnedGames(apiKey, steamId) {
   const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${apiKey}&steamid=${steamId}&include_appinfo=true&include_played_free_games=true`;
   const res = await fetch(url);
-  const json = await res.json();
+  const text = await res.text();
+  console.log(`[collect] Steam API status: ${res.status}`);
+  console.log(`[collect] Steam API first 200 chars: ${text.slice(0, 200)}`);
+  const json = JSON.parse(text);
   return json.response?.games || [];
 }
 
