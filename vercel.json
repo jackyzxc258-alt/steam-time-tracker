@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "api/collect.js": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/collect",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}
